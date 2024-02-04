@@ -5,14 +5,13 @@ use core::cell::RefCell;
 
 use embedded_hal_bus::spi::{NoDelay, RefCellDevice};
 use hal::prelude::*;
-use hal::spi::{Spi, Mode};
+use hal::spi::{Mode, Spi};
 
-use stm32f4xx_hal as hal;
 use cortex_m_rt::entry;
+use stm32f4xx_hal as hal;
 
 use defmt_rtt as _;
 use panic_probe as _;
-
 
 #[entry]
 fn main() -> ! {
@@ -30,12 +29,17 @@ fn main() -> ! {
     let spi3_miso = gpioc.pc11.into_alternate();
     let spi3_mosi = gpioc.pc12.into_alternate();
     let gpioa = p.GPIOA.split();
-    let spi3_dac_sync = gpioa.pa15.into_push_pull_output_in_state(hal::gpio::PinState::High);
+    let spi3_dac_sync = gpioa
+        .pa15
+        .into_push_pull_output_in_state(hal::gpio::PinState::High);
     // SPI Instance initialization in MODE 2
     let spi3 = Spi::new(
         p.SPI3,
         (spi3_sclk, spi3_miso, spi3_mosi),
-        Mode{phase: hal::spi::Phase::CaptureOnFirstTransition, polarity: hal::spi::Polarity::IdleHigh},
+        Mode {
+            phase: hal::spi::Phase::CaptureOnFirstTransition,
+            polarity: hal::spi::Polarity::IdleHigh,
+        },
         1.MHz(),
         &ccdr,
     );
@@ -48,16 +52,15 @@ fn main() -> ! {
 
     // Setup the DAC as desired.
     dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
-    dac.set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V).unwrap();
+    dac.set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
+        .unwrap();
     dac.set_dac_output(ad57xx::Channel::DacA, 0x9000).unwrap();
     let mut val: u16 = 0x0000;
     loop {
         delay.delay_ms(250);
         dac.set_dac_output(ad57xx::Channel::DacA, val).unwrap();
-        
+
         val = val.wrapping_add(0x1000);
         continue;
     }
 }
-
-

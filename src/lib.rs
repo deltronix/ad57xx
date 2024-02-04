@@ -1,9 +1,8 @@
 //! Driver for Analog Devices AD57xx series of dual and quad channel 16/14/12bit DACs
 //!
 //! For now only AD57x4 series are supported. However
-//! 
 //!
-
+//!
 
 #![deny(unsafe_code, missing_docs)]
 #![no_std]
@@ -47,7 +46,6 @@ impl From<Command> for u8 {
         }
     }
 }
-
 
 #[derive(Debug)]
 enum Data {
