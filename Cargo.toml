@@ -2,6 +2,13 @@
 name = "ad57xx"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Analog Devices AD57xx SPI DAC driver"
+homepage = "https://github.com/deltronix/ad57xx"
+repository = "https://github.com/deltronix/ad57xx"
+readme = "README.md"
+categories = ["embedded", "no-std"]
+keywords = ["analog", "devices", "driver", "ad5754", "ad5734", "ad5724"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
