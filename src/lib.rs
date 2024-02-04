@@ -24,6 +24,8 @@ pub enum Error<E> {
     Spi(E),
     /// Invalid argument
     InvalidArgument,
+    /// Read Error
+    ReadError,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -68,8 +70,8 @@ enum Function {
 /// These values are valid with a reference input of 2.5V, if the reference
 /// voltage is different, consult the datasheet for the gains associated with
 /// these settings.
-#[derive(Debug)]
-#[repr(u8)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u16)]
 pub enum OutputRange {
     /// Gain = 2, 0V to +5V when Vref = 2.5V
     Unipolar5V = 0b000,
@@ -83,6 +85,21 @@ pub enum OutputRange {
     Bipolar10V = 0b100,
     /// Gain = 8.64, -10.8 to +10.8V when Vref = 2.5V
     Bipolar10_8V = 0b101,
+    /// Invalid readback result
+    InvalidReadback,
+}
+impl From<u16> for OutputRange {
+    fn from(value: u16) -> Self {
+        match value {
+            0b000 => Self::Unipolar5V,
+            0b001 => Self::Unipolar10V,
+            0b010 => Self::Unipolar10_8V,
+            0b011 => Self::Bipolar5V,
+            0b100 => Self::Bipolar10V,
+            0b101 => Self::Bipolar10_8V,
+            _ => Self::InvalidReadback,
+        }
+    }
 }
 
 /// Dac Channel
@@ -102,7 +119,7 @@ pub enum Channel {
 }
 
 #[bitfield(u8)]
-struct ComnandByte {
+struct CommandByte {
     #[bits(3)]
     addr: u8,
 
@@ -117,7 +134,7 @@ struct ComnandByte {
 }
 
 /// Definition of the configuration in the Control Register
-#[bitfield(u8)]
+#[bitfield(u16)]
 pub struct Config {
     /// Set by the user to disable the SDO output. Cleared by the user to
     /// enable the SDO output (default).
@@ -141,8 +158,8 @@ pub struct Config {
     #[bits(default = false)]
     pub(crate) tsd_enable: bool,
     /// Rest of the bits are unused during config operation
-    #[bits(4)]
-    _unused: u8,
+    #[bits(12)]
+    _unused: u16,
 }
 #[bitfield(u16)]
 struct PowerConfig {

@@ -2,7 +2,7 @@ use embedded_hal::spi::SpiDevice;
 
 
 use crate::{
-    Ad57xxShared,Channel, Command, CommandBits, Config, Data, Error, Function, OutputRange, PowerConfig,
+    Ad57xxShared,Channel, Command, CommandByte, Config, Data, Error, Function, OutputRange, PowerConfig,
 };
 
 
@@ -55,7 +55,8 @@ where
 
     /// Set the device configuration
     pub fn set_config(&mut self, cfg: Config) -> Result<(), Error<E>>{
-        self.write(Command::ControlRegister(Function::Config), Data::Control(cfg))
+        self.cfg = cfg;
+        self.write(Command::ControlRegister(Function::Config), Data::Control(self.cfg))
     }
 
     /// Set the output range of the selected DAC channel
@@ -77,7 +78,7 @@ where
             Command::DacRegister(addr) => {
                 if let Data::DacValue(val) = data {
                     [
-                        CommandBits::new()
+                        CommandByte::new()
                             .with_addr(addr as u8)
                             .with_reg(u8::from(cmd))
                             .into(),
@@ -91,7 +92,7 @@ where
             Command::RangeSelectRegister(addr) => {
                 if let Data::OutputRange(val) = data {
                     [
-                        CommandBits::new()
+                        CommandByte::new()
                             .with_addr(addr as u8)
                             .with_reg(u8::from(cmd))
                             .into(),
@@ -105,7 +106,7 @@ where
             Command::PowerControlRegister => {
                 if let Data::PowerControl(pc) = data {
                     [
-                        CommandBits::new()
+                        CommandByte::new()
                             .with_reg(u8::from(cmd))
                             .into(),
                         (u16::from(pc) >> 8) as u8,
@@ -118,12 +119,12 @@ where
             Command::ControlRegister(func) if func == Function::Config => {
                 if let Data::Control(cfg) = data {
                     [
-                        CommandBits::new()
+                        CommandByte::new()
                             .with_reg(u8::from(cmd))
                             .with_addr(func as u8)
                             .into(),
                         0x00,
-                        u8::from(cfg),
+                        u16::from(cfg) as u8,
                     ]
                 } else {
                     return Err(Error::InvalidArgument);
@@ -132,7 +133,7 @@ where
             Command::ControlRegister(func) => {
                 if let Data::None = data {
                     [
-                    CommandBits::new()
+                    CommandByte::new()
                         .with_reg(u8::from(cmd))
                         .with_addr(func as u8)
                         .into(),
@@ -149,16 +150,27 @@ where
     fn spi_write(&mut self, payload: &[u8]) -> Result<(), Error<E>>{
         self.spi.write(&payload).map_err(Error::Spi)
     }
-    /*
-    fn spi_read(&mut self, cmd: Command) -> Result<Data, Error<E>>{
+    fn read(&mut self, cmd: Command) -> Result<Data, Error<E>>{
         let addr = match cmd {
             Command::DacRegister(addr) => addr as u8,
             Command::RangeSelectRegister(addr) => addr as u8,
             Command::PowerControlRegister => 0,
             Command::ControlRegister(function) => function as u8,
         };
-        let cmd = CommandBits::new().with_rw(true).with_reg(u8::from(cmd)).with_reg(addr);
-        self.spi.write(&[u8::from(cmd), 0, 0])
+        // The register to be read with the read bit set
+        let cmd_byte = CommandByte::new().with_rw(true).with_reg(u8::from(cmd)).with_reg(addr);
+        self.spi.write(&[u8::from(cmd_byte), 0, 0]).map_err(Error::Spi)?;
+        let mut rx: [u8; 3] = [0x00; 3];
+        // Send a NOP instruction while reading
+        let nop = CommandByte::new().with_reg(u8::from(Command::ControlRegister(Function::Nop))).with_addr(Function::Nop as u8);
+        self.spi.transfer(&mut [u8::from(nop),0,0], &mut rx).map_err(Error::Spi)?;
+        let data: u16 = (rx[1] as u16) << 8 + rx[0] as u16;
+        match cmd {
+            Command::DacRegister(_) => Ok(Data::DacValue(data)),
+            Command::RangeSelectRegister(_) => Ok(Data::OutputRange(OutputRange::from(data))),
+            Command::PowerControlRegister => Ok(Data::PowerControl(PowerConfig::from(data))),
+            Command::ControlRegister(func) if func == Function::Config => Ok(Data::Control(Config::from(data))),
+            Command::ControlRegister(_) => Err(Error::ReadError),
+        }
     }
-    */
 }
