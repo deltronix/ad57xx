@@ -1,37 +1,29 @@
-//! # Embedded-hal driver for Analog Devices AD57xx series of dual and quad channel 16/14/12bit DACs
-//!
-//! For now only the AD57x4 quad channel chips are supported. Readback operation is currently
-//! untested as my hardware does not support it. If you are in the opportunity to do so please
-//! let me know.
-//!
-//! Any contribution to this crate is welcome, as it's my first published crate any 
-//! feedback is appreciated.
-//!
-//! ## Shared bus example on stm32f4:
-//! ```
-//! // Creating shared DAC SPI Device
-//! use ad57xx::Ad57xxShared;
-//! let mut dac = Ad57xxShared::new(RefCellDevice::new(&spi_bus, spi3_dac_sync, NoDelay));
-//!
-//! // Setup the DAC as desired.
-//! dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
-//! dac.set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
-//!     .unwrap();
-//! // Output a value (left-aligned 16 bit)
-//! dac.set_dac_output(ad57xx::Channel::DacA, 0x9000).unwrap();
-//! ```
-
+#![doc = include_str!("../README.md")]
 #![deny(unsafe_code, missing_docs)]
 #![no_std]
 
+use core::include_str;
+use core::marker::PhantomData;
+
 use bitfield_struct::bitfield;
-pub use crate::common::Ad57xx;
 
 /// AD57xx DAC with shared SPI bus access
-pub struct Ad57xxShared<DEV> {
+pub struct Ad57xxShared<DEV, IC> {
     spi: DEV,
     pcfg: PowerConfig,
     cfg: Config,
+    _ic: PhantomData<IC>
+}
+impl<DEV, IC> Ad57xxShared <DEV, IC>{
+    pub(crate) fn create(spi:DEV) -> Self {
+        Ad57xxShared {
+            spi,
+            cfg: Config::default(),
+            pcfg: PowerConfig::default(),
+            _ic: PhantomData,
+        }
+
+    }
 }
 
 
@@ -53,6 +45,29 @@ enum Data {
     Control(Config),
     PowerControl(PowerConfig),
     None,
+}
+/// Enum determining the contents of the Register and Address bits
+#[derive(Debug, Clone, Copy)]
+#[repr(u8)]
+enum Command<C> {
+    /// Access the DAC register of the channel(s)
+    DacRegister(C),
+    /// Access the range select register of the channel(s)
+    RangeSelectRegister(C),
+    /// Access the power control register
+    PowerControlRegister,
+    /// Access the control register
+    ControlRegister(Function),
+}
+impl<C> From<Command<C>> for u8 {
+    fn from(cmd: Command<C>) -> Self {
+        match cmd {
+            Command::DacRegister(_) => 0b000,
+            Command::RangeSelectRegister(_) => 0b001,
+            Command::PowerControlRegister => 0b010,
+            Command::ControlRegister(_) => 0b011,
+        }
+    }
 }
 
 /// Address of a function in the control register
@@ -185,13 +200,18 @@ pub struct PowerConfig {
 #[doc(hidden)]
 pub mod marker {
     pub enum Ad57x4 {}
+    pub enum Ad57x2 {}
 }
-pub mod common;
+
+#[doc(hidden)]
 pub mod ad57x4;
+#[doc(hidden)]
+pub mod ad57x2;
 
 mod private {
     use super::marker;
     pub trait Sealed {}
 
     impl Sealed for marker::Ad57x4 {}
+    impl Sealed for marker::Ad57x2 {}
 }

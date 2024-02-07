@@ -1,5 +1,7 @@
-//! Quad channel implementation
+//! Dual channel implementation
+
 use embedded_hal::spi::SpiDevice;
+
 use crate::{
     Ad57xxShared, CommandByte, Command,  Config, Data, Error, Function, OutputRange,
     PowerConfig,
@@ -13,20 +15,14 @@ pub enum Channel {
     DacA = 0,
     /// DAC Channel B
     DacB = 1,
-    /// DAC Channel C
-    DacC = 2,
-    /// DAC Channel D
-    DacD = 3,
     /// All DAC Channels
-    AllDacs = 4,
+    AllDacs = 2,
 }
 
-#[doc(hidden)]
-impl<DEV, E> Ad57xxShared<DEV, crate::marker::Ad57x4> where
-DEV: SpiDevice<Error = E>
-{
-    /// Create a new quad channel AD57xx DAC SPI Device on a shared bus
-    pub fn new_ad57x4(spi: DEV) -> Self {
+impl<DEV, E> Ad57xxShared<DEV, crate::marker::Ad57x2> where
+DEV: SpiDevice<Error = E>{
+    /// Create a new dual channel AD57xx DAC SPI Device on a shared bus
+    pub fn new_ad57x2(spi: DEV) -> Self {
         Self::create(spi)
     }    
     fn spi_write(&mut self, payload: &[u8]) -> Result<(), Error<E>> {
@@ -144,15 +140,11 @@ DEV: SpiDevice<Error = E>
         match chan {
             Channel::DacA => self.pcfg.set_pu_a(pwr),
             Channel::DacB => self.pcfg.set_pu_b(pwr),
-            Channel::DacC => self.pcfg.set_pu_c(pwr),
-            Channel::DacD => self.pcfg.set_pu_d(pwr),
             Channel::AllDacs => {
                 self.pcfg = self
                     .pcfg
                     .with_pu_a(pwr)
                     .with_pu_b(pwr)
-                    .with_pu_c(pwr)
-                    .with_pu_d(pwr)
             }
         }
         self.write(Command::PowerControlRegister, Data::PowerControl(self.pcfg))
@@ -171,6 +163,7 @@ DEV: SpiDevice<Error = E>
     pub fn set_dac_output(&mut self, chan: Channel, val: u16) -> Result<(), Error<E>> {
         self.write(Command::DacRegister(chan), Data::DacValue(val))
     }
+
     /// Set the device configuration
     pub fn set_config(&mut self, cfg: Config) -> Result<(), Error<E>> {
         self.cfg = cfg;
@@ -200,7 +193,4 @@ DEV: SpiDevice<Error = E>
     pub fn load_dacs(&mut self) -> Result<(), Error<E>> {
         self.write(Command::ControlRegister(Function::Load), Data::None)
     }
-
-   
-
 }
