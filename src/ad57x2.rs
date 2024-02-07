@@ -1,10 +1,9 @@
 //! Dual channel implementation
-
+use bitfield_struct::bitfield;
 use embedded_hal::spi::SpiDevice;
 
 use crate::{
-    Ad57xxShared, CommandByte, Command,  Config, Data, Error, Function, OutputRange,
-    PowerConfig,
+    Ad57xxShared, CommandByte, Command,  Config, Data, Error, Function, OutputRange
 };
 
 /// Dac Channel
@@ -18,6 +17,35 @@ pub enum Channel {
     /// All DAC Channels
     AllDacs = 2,
 }
+/// Definition of the power configuration register
+#[bitfield(u16)]
+pub struct PowerConfig {
+    #[bits(1)]
+    pu_a: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(1)]
+    pu_b: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(1)]
+    tsd: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(1)]
+    oc_a: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(1)]
+    oc_b: bool,
+    #[bits(1)]
+    _unused: bool,
+    #[bits(5)]
+    _unused: u8,
+}
+
 
 impl<DEV, E> Ad57xxShared<DEV, crate::marker::Ad57x2> where
 DEV: SpiDevice<Error = E>{
@@ -28,7 +56,7 @@ DEV: SpiDevice<Error = E>{
     fn spi_write(&mut self, payload: &[u8]) -> Result<(), Error<E>> {
         self.spi.write(&payload).map_err(Error::Spi)
     }
-    fn read(&mut self, cmd: Command<Channel>) -> Result<Data, Error<E>> {
+    fn read(&mut self, cmd: Command<Channel>) -> Result<Data<PowerConfig>, Error<E>> {
         let addr = match cmd {
             Command::DacRegister(addr) => addr as u8,
             Command::RangeSelectRegister(addr) => addr as u8,
@@ -39,7 +67,7 @@ DEV: SpiDevice<Error = E>{
         let cmd_byte = CommandByte::new()
             .with_rw(true)
             .with_reg(u8::from(cmd))
-            .with_reg(addr);
+            .with_addr(addr);
         self.spi
             .write(&[u8::from(cmd_byte), 0, 0])
             .map_err(Error::Spi)?;
@@ -62,7 +90,7 @@ DEV: SpiDevice<Error = E>{
             Command::ControlRegister(_) => Err(Error::ReadError),
         }
     }
-    fn write(&mut self, cmd: Command<Channel>, data: Data) -> Result<(), Error<E>> {
+    fn write(&mut self, cmd: Command<Channel>, data: Data<PowerConfig>) -> Result<(), Error<E>> {
         let payload: [u8; 3] = match cmd {
             Command::DacRegister(addr) => {
                 if let Data::DacValue(val) = data {
@@ -137,17 +165,17 @@ DEV: SpiDevice<Error = E>{
     /// Power up or down a single or all DAC channels
     /// After power up a timeout of 10us is required before loading the corresponding DAC register
     pub fn set_power(&mut self, chan: Channel, pwr: bool) -> Result<(), Error<E>> {
-        match chan {
-            Channel::DacA => self.pcfg.set_pu_a(pwr),
-            Channel::DacB => self.pcfg.set_pu_b(pwr),
-            Channel::AllDacs => {
-                self.pcfg = self
-                    .pcfg
-                    .with_pu_a(pwr)
-                    .with_pu_b(pwr)
-            }
+        if let Data::PowerControl(pcfg)  = self.read(Command::PowerControlRegister)?{
+            let pcfg = match chan {
+            Channel::DacA => pcfg.with_pu_a(pwr),
+            Channel::DacB => pcfg.with_pu_b(pwr),
+            Channel::AllDacs => pcfg.with_pu_a(pwr).with_pu_b(pwr),
+            };
+            self.write(Command::PowerControlRegister, Data::PowerControl(pcfg))
         }
-        self.write(Command::PowerControlRegister, Data::PowerControl(self.pcfg))
+        else {
+        Err(Error::ReadError)
+        }
     }
     /// Write a 16 bit value to the selected DAC register.
     /// > Note that the devices with a bit depth smaller than 16 use a left-aligned data format.

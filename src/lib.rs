@@ -10,7 +10,6 @@ use bitfield_struct::bitfield;
 /// AD57xx DAC with shared SPI bus access
 pub struct Ad57xxShared<DEV, IC> {
     spi: DEV,
-    pcfg: PowerConfig,
     cfg: Config,
     _ic: PhantomData<IC>
 }
@@ -19,13 +18,10 @@ impl<DEV, IC> Ad57xxShared <DEV, IC>{
         Ad57xxShared {
             spi,
             cfg: Config::default(),
-            pcfg: PowerConfig::default(),
             _ic: PhantomData,
         }
-
     }
 }
-
 
 /// Errors for this crate
 #[derive(Debug)]
@@ -39,11 +35,11 @@ pub enum Error<E> {
 }
 
 #[derive(Debug)]
-enum Data {
+enum Data<PCFG> {
     DacValue(u16),
     OutputRange(OutputRange),
     Control(Config),
-    PowerControl(PowerConfig),
+    PowerControl(PCFG),
     None,
 }
 /// Enum determining the contents of the Register and Address bits
@@ -120,8 +116,6 @@ impl From<u16> for OutputRange {
     }
 }
 
-
-
 #[bitfield(u8)]
 struct CommandByte {
     #[bits(3)]
@@ -167,40 +161,12 @@ pub struct Config {
     #[bits(12)]
     _unused: u16,
 }
-/// Definition of the power configuration register
-#[bitfield(u16)]
-pub struct PowerConfig {
-    #[bits(1)]
-    pu_a: bool,
-    #[bits(1)]
-    pu_b: bool,
-    #[bits(1)]
-    pu_c: bool,
-    #[bits(1)]
-    pu_d: bool,
-    #[bits(1)]
-    _unused: bool,
-    #[bits(1)]
-    tsd: bool,
-    #[bits(1)]
-    _unused: bool,
-    #[bits(1)]
-    oc_a: bool,
-    #[bits(1)]
-    oc_b: bool,
-    #[bits(1)]
-    oc_c: bool,
-    #[bits(1)]
-    oc_d: bool,
-    #[bits(5)]
-    _unused: u8,
-}
 
 /// Markers
 #[doc(hidden)]
 pub mod marker {
-    pub enum Ad57x4 {}
-    pub enum Ad57x2 {}
+    pub struct Ad57x4 {}
+    pub struct Ad57x2 {}
 }
 
 #[doc(hidden)]
