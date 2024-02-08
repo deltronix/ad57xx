@@ -39,7 +39,10 @@ let spi3_dac_sync = gpioa
 let spi3 = Spi::new(
     p.SPI3,
     (spi3_sclk, spi3_miso, spi3_mosi),
-    Mod
+    Mode {
+            phase: hal::spi::Phase::CaptureOnFirstTransition,
+            polarity: hal::spi::Polarity::IdleHigh,
+    },
     1.MHz(),
     &ccdr,
 );
