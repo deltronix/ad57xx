@@ -1,6 +1,6 @@
 [package]
 name = "ad57xx"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 license = "MIT"
 description = "Analog Devices AD57xx SPI DAC driver"
@@ -27,6 +27,9 @@ defmt-rtt = "0.4.0"
 panic-halt = "0.2.0"
 panic-probe = { version = "0.3.0", features = [ "print-defmt" ] }
 stm32f4xx-hal = { version = "0.20.0", features = ["stm32f405"] }
+
+[target.x86_64-unknown-linux-gnu.dev-dependencies]
+embedded-hal-mock = { version = "0.10.0", features = ["eh1"] }
 
 # cargo build/run
 [profile.dev]
