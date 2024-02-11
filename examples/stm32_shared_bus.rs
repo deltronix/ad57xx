@@ -48,26 +48,26 @@ fn main() -> ! {
     // SPI Bus creation using embedded-hal-bus
     let spi_bus = RefCell::new(spi3);
 
-    use ad57xx::Ad57xxShared;
+    use ad57xx::{Ad57xxShared, Ad57xx};
     // Create a new AD57x4 SpiDevice
     let mut dac = Ad57xxShared::new_ad57x4(RefCellDevice::new(&spi_bus, spi3_dac_sync, NoDelay));
 
     // Setup the DAC as desired.
-    dac.set_power(ad57xx::ad57x4::Channel::AllDacs, true)
+    dac.set_power(ad57xx::ad57x4::ChannelQuad::AllDacs, true)
         .unwrap();
     dac.set_output_range(
-        ad57xx::ad57x4::Channel::AllDacs,
+        ad57xx::ad57x4::ChannelQuad::AllDacs,
         ad57xx::OutputRange::Bipolar5V,
     )
     .unwrap();
     // Output a value (left-aligned 16 bit)
-    dac.set_dac_output(ad57xx::ad57x4::Channel::DacA, 0x9000)
+    dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacA, 0x9000)
         .unwrap();
     let mut val: u16 = 0x0000;
     loop {
         // Output a stepped voltage
         delay.delay_ms(250);
-        dac.set_dac_output(ad57xx::ad57x4::Channel::DacA, val)
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacA, val)
             .unwrap();
         val = val.wrapping_add(0x1000);
         continue;
