@@ -1,16 +1,15 @@
 //! Dual channel implementation
 use bitfield_struct::bitfield;
-use embedded_hal::spi::SpiDevice;
+use embedded_hal::spi::{SpiDevice, Operation};
 
 use crate::{
-    Ad57xx, Ad57xxPrivate, Ad57xxShared, Command, CommandByte, Config, Data, Error, Function,
-    OutputRange,
+    Ad57xx, Ad57xxShared, Command, Data, Error, Config, Function
 };
 
 /// Dac Channel
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
-pub enum Channel {
+pub enum ChannelDual {
     /// DAC Channel A
     DacA = 0,
     /// DAC Channel B
@@ -18,12 +17,12 @@ pub enum Channel {
     /// All DAC Channels
     AllDacs = 4,
 }
-impl From<Channel> for u8 {
-    fn from(value: Channel) -> Self {
+impl From<ChannelDual> for u8 {
+    fn from(value: ChannelDual) -> Self {
         match value {
-            Channel::DacA => 0,
-            Channel::DacB => 2,
-            Channel::AllDacs => 4,
+            ChannelDual::DacA => 0,
+            ChannelDual::DacB => 2,
+            ChannelDual::AllDacs => 4,
         }
     }
 }
@@ -56,7 +55,7 @@ pub struct PowerConfigDual {
     _unused: u8,
 }
 
-impl<DEV, E> Ad57xxShared<DEV, crate::marker::Ad57x2, Channel, PowerConfigDual>
+impl<DEV, E> Ad57xxShared<DEV, crate::marker::Ad57x2>
 where
     DEV: SpiDevice<Error = E>,
 {
@@ -66,14 +65,73 @@ where
     }
     /// Power up or down a single or all DAC channels
     /// After power up a timeout of 10us is required before loading the corresponding DAC register
-    pub fn set_power(&mut self, chan: Channel, pwr: bool) -> Result<(), Error<E>> {
+    pub fn set_power(&mut self, chan: ChannelDual, pwr: bool) -> Result<(), Error<E>> {
+        let pcfg = PowerConfigDual::from(self.pcfg);
+        self.pcfg = match chan {
+                ChannelDual::DacA => pcfg.with_pu_a(pwr),
+                ChannelDual::DacB => pcfg.with_pu_b(pwr),
+                ChannelDual::AllDacs => pcfg.with_pu_a(pwr).with_pu_b(pwr),
+        }.into();
+        self.write(Command::<ChannelDual>::PowerControlRegister, Data::PowerControl(self.pcfg.into()))
+    }    
+
+}
+impl<DEV, E> Ad57xx<DEV, E> for Ad57xxShared<DEV, crate::marker::Ad57x2> where
+DEV: SpiDevice<Error = E>,
+{
+    type CH = ChannelDual;
+    type PCFG = PowerConfigDual;
+    fn spi_write(&mut self, payload: &[u8; 3]) -> Result<(), Error<E>> {
+        self.spi
+            .transaction(&mut [Operation::Write(payload)])
+            .map_err(Error::Spi)
+    }
+    fn spi_read(&mut self, cmd: u8) -> Result<u16, Error<E>> {
+        self.spi.write(&[cmd, 0, 0]).map_err(Error::Spi)?;
+        let mut rx: [u8; 3] = [0x00; 3];
+        // Send a NOP instruction (0x18) while reading
+        self.spi
+            .transfer(&mut rx, &mut [0x18, 0, 0])
+            .map_err(Error::Spi)?;
+        Ok(((rx[1] as u16) << 8) | rx[0] as u16)
+    }    
+    /// Set the device configuration
+    fn set_config(&mut self, cfg: Config) -> Result<(), Error<E>> {
+        self.cfg = cfg;
+        self.write(
+            Command::<Self::CH>::ControlRegister(Function::Config),
+            Data::Control(cfg),
+        )
+    }
+
+    /// Get the device configuration
+    #[cfg(not(feature = "readback"))]
+    fn get_config(&mut self) -> Result<Config, Error<E>> {
+        Ok(self.cfg)
+    }
+    #[cfg(feature = "readback")]
+    fn get_config(&mut self) -> Result<Config, Error<E>> {
+        match self.read(Command::<Self::CH>::ControlRegister(Function::Config))? {
+            Data::Control(cfg) => {self.cfg = cfg; Ok(cfg)},
+            _ => Err(Error::ReadError),
+        }
+    }    
+    /// Set the device power configuration
+    fn set_power_config(&mut self, pcfg: Self::PCFG) -> Result<(), Error<E>> {
+        self.pcfg = pcfg.into();
+        self.write(Command::PowerControlRegister, Data::PowerControl(pcfg))
+    }
+
+    /// Get the device power configuration
+    #[cfg(not(feature = "readback"))]
+    fn get_power_config(&mut self) -> Result<Self::PCFG, Error<E>> {
+        Ok(self.pcfg.into())
+    }
+    #[cfg(feature = "readback")]
+    fn get_power_config(&mut self) -> Result<Self::PCFG, Error<E>> {
         if let Data::PowerControl(pcfg) = self.read(Command::PowerControlRegister)? {
-            let pcfg = match chan {
-                Channel::DacA => pcfg.with_pu_a(pwr),
-                Channel::DacB => pcfg.with_pu_b(pwr),
-                Channel::AllDacs => pcfg.with_pu_a(pwr).with_pu_b(pwr),
-            };
-            self.write(Command::PowerControlRegister, Data::PowerControl(pcfg))
+            self.pcfg = pcfg.into();
+            Ok(pcfg)
         } else {
             Err(Error::ReadError)
         }

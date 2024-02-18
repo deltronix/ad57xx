@@ -5,24 +5,22 @@
 use bitfield_struct::bitfield;
 use core::include_str;
 use core::marker::PhantomData;
-use embedded_hal::spi::{Operation, SpiDevice};
 
 /// AD57xx DAC with shared SPI bus access
-pub struct Ad57xxShared<DEV, IC, CH, PCFG> {
+pub struct Ad57xxShared<DEV, IC> {
     spi: DEV,
     cfg: Config,
-    _pcfg: PhantomData<PCFG>,
+    pcfg: u16,
     _ic: PhantomData<IC>,
-    _ch: PhantomData<CH>,
 }
-impl<DEV, IC, CH, PCFG> Ad57xxShared<DEV, IC, CH, PCFG> {
+
+impl<DEV, IC> Ad57xxShared<DEV, IC> {
     pub(crate) fn create(spi: DEV) -> Self {
         Ad57xxShared {
             spi,
             cfg: Config::default(),
-            _pcfg: PhantomData,
+            pcfg: 0,
             _ic: PhantomData,
-            _ch: PhantomData,
         }
     }
     /// Return spi bus instance and SYNC pin
@@ -31,8 +29,28 @@ impl<DEV, IC, CH, PCFG> Ad57xxShared<DEV, IC, CH, PCFG> {
     }
 }
 
+
+
+trait Ad57xxPrivate {}
+
 /// Common functionality among the Ad57xx range
-pub trait Ad57xx<DEV, E, CH, PCFG> {
+pub trait Ad57xx<DEV, E> where 
+u16:  From<<Self as Ad57xx<DEV, E>>::PCFG> + Into<<Self as Ad57xx<DEV, E>>::PCFG>,
+u8:  From<<Self as Ad57xx<DEV, E>>::CH>,
+u8:  From<Command::<<Self as Ad57xx<DEV, E>>::CH>>,
+{
+    /// Channel type
+    type CH: Copy;
+    /// PowerConfig type
+    type PCFG: Copy;
+
+
+    /// Write a 24bit value to the device
+    fn spi_write(&mut self, payload: &[u8; 3]) -> Result<(), Error<E>>;
+
+    /// Read the 16bit data associated with the register.
+    fn spi_read(&mut self, cmd: u8) -> Result<u16, Error<E>>;
+
     /// Write a 16 bit value to the selected DAC register.
     /// > Note that the devices with a bit depth smaller than 16 use a left-aligned data format.
     ///
@@ -44,7 +62,9 @@ pub trait Ad57xx<DEV, E, CH, PCFG> {
     /// ad5754.set_dac_output(Channel::DacA, 0x8000);
     /// ```
     ///
-    fn set_dac_output(&mut self, chan: CH, val: u16) -> Result<(), Error<E>>;
+    fn set_dac_output(&mut self, chan: Self::CH, val: u16) -> Result<(), Error<E>> {
+        self.write(Command::DacRegister(chan), Data::DacValue(val))
+    }
 
     /// Set the device configuration
     fn set_config(&mut self, cfg: Config) -> Result<(), Error<E>>;
@@ -52,93 +72,27 @@ pub trait Ad57xx<DEV, E, CH, PCFG> {
     fn get_config(&mut self) -> Result<Config, Error<E>>;
 
     /// Set the device power configuration
-    fn set_power_config(&mut self, pcfg: PCFG) -> Result<(), Error<E>>;
+    fn set_power_config(&mut self, pcfg: Self::PCFG) -> Result<(), Error<E>>;
+
     /// Get the device power configuration
-    fn get_power_config(&mut self) -> Result<PCFG, Error<E>>;
+    fn get_power_config(&mut self) -> Result<Self::PCFG, Error<E>>;
+
+
     /// Set the output range of the selected DAC channel
-    fn set_output_range(&mut self, chan: CH, range: OutputRange) -> Result<(), Error<E>>;
-    /// This function sets the DAC registers to the clear code and updates the outputs.
-    fn clear_dacs(&mut self) -> Result<(), Error<E>>;
-    /// This function updates the DAC registers and, consequently, the DAC outputs.
-    fn load_dacs(&mut self) -> Result<(), Error<E>>;
-}
-impl<DEV, E, IC, CH, PCFG> Ad57xx<DEV, E, CH, PCFG> for Ad57xxShared<DEV, IC, CH, PCFG>
-where
-    DEV: SpiDevice<Error = E>,
-    u8: From<CH>,
-    u8: From<Command<CH>>,
-    u16: From<PCFG>,
-    PCFG: Into<u16> + From<u16> + Copy,
-    CH: Copy,
-{
-    fn set_dac_output(&mut self, chan: CH, val: u16) -> Result<(), Error<E>> {
-        self.write(Command::DacRegister(chan), Data::DacValue(val))
-    }
-
-    fn set_config(&mut self, cfg: Config) -> Result<(), Error<E>> {
-        self.cfg = cfg;
-        self.write(
-            Command::ControlRegister(Function::Config),
-            Data::Control(self.cfg),
-        )
-    }
-    fn get_config(&mut self) -> Result<Config, Error<E>> {
-        match self.read(Command::ControlRegister(Function::Config))? {
-            Data::Control(cfg) => Ok(cfg),
-            _ => Err(Error::ReadError),
-        }
-    }
-    fn set_power_config(&mut self, pcfg: PCFG) -> Result<(), Error<E>> {
-        self.write(Command::PowerControlRegister, Data::PowerControl(pcfg))
-    }
-    fn get_power_config(&mut self) -> Result<PCFG, Error<E>> {
-        if let Data::PowerControl(pcfg) = self.read(Command::PowerControlRegister)? {
-            Ok(pcfg)
-        } else {
-            Err(Error::ReadError)
-        }
-    }
-
-    fn set_output_range(&mut self, chan: CH, range: OutputRange) -> Result<(), Error<E>> {
+    fn set_output_range(&mut self, chan: Self::CH, range: OutputRange) -> Result<(), Error<E>> {
         self.write(Command::RangeSelectRegister(chan), Data::OutputRange(range))
     }
+    /// This function sets the DAC registers to the clear code and updates the outputs.
     fn clear_dacs(&mut self) -> Result<(), Error<E>> {
-        self.write(Command::ControlRegister(Function::Clear), Data::None)
+        self.write(Command::<Self::CH>::ControlRegister(Function::Clear), Data::None)
     }
+    /// This function updates the DAC registers and, consequently, the DAC outputs.
     fn load_dacs(&mut self) -> Result<(), Error<E>> {
-        self.write(Command::ControlRegister(Function::Load), Data::None)
+        self.write(Command::<Self::CH>::ControlRegister(Function::Load), Data::None)
     }
-}
-trait Ad57xxPrivate<DEV, E, CH, PCFG> {
-    fn spi_write(&mut self, payload: &[u8; 3]) -> Result<(), Error<E>>;
-    fn spi_read(&mut self, cmd: u8) -> Result<u16, Error<E>>;
-    fn write(&mut self, cmd: Command<CH>, data: Data<PCFG>) -> Result<(), Error<E>>;
-    fn read(&mut self, cmd: Command<CH>) -> Result<Data<PCFG>, Error<E>>;
-}
-impl<DEV, E, IC, CH, PCFG> Ad57xxPrivate<DEV, E, CH, PCFG> for Ad57xxShared<DEV, IC, CH, PCFG>
-where
-    DEV: SpiDevice<Error = E>,
-    u8: From<CH>,
-    u8: From<Command<CH>>,
-    u16: From<PCFG>,
-    PCFG: Into<u16> + From<u16> + Copy,
-    CH: Copy,
-{
-    fn spi_write(&mut self, payload: &[u8; 3]) -> Result<(), Error<E>> {
-        self.spi
-            .transaction(&mut [Operation::Write(payload)])
-            .map_err(Error::Spi)
-    }
-    fn spi_read(&mut self, cmd: u8) -> Result<u16, Error<E>> {
-        self.spi.write(&[cmd, 0, 0]).map_err(Error::Spi)?;
-        let mut rx: [u8; 3] = [0x00; 3];
-        // Send a NOP instruction (0x18) while reading
-        self.spi
-            .transfer(&mut rx, &mut [0x18, 0, 0])
-            .map_err(Error::Spi)?;
-        Ok(((rx[1] as u16) << 8) | rx[0] as u16)
-    }
-    fn write(&mut self, cmd: Command<CH>, data: Data<PCFG>) -> Result<(), Error<E>> {
+
+    /// Write data to the device
+    fn write(&mut self, cmd: Command<Self::CH>, data: Data<Self::PCFG>) -> Result<(), Error<E>> {
         let payload: [u8; 3] = match cmd {
             Command::DacRegister(addr) => {
                 if let Data::DacValue(val) = data {
@@ -210,7 +164,9 @@ where
         };
         self.spi_write(&payload)
     }
-    fn read(&mut self, cmd: Command<CH>) -> Result<Data<PCFG>, Error<E>> {
+
+    /// Read data from the device
+    fn read(&mut self, cmd: Command<Self::CH>) -> Result<Data<Self::PCFG>, Error<E>> {
         let addr = match cmd {
             Command::DacRegister(addr) => u8::from(addr),
             Command::RangeSelectRegister(addr) => u8::from(addr),
@@ -226,7 +182,7 @@ where
         match cmd {
             Command::DacRegister(_) => Ok(Data::DacValue(data)),
             Command::RangeSelectRegister(_) => Ok(Data::OutputRange(OutputRange::from(data))),
-            Command::PowerControlRegister => Ok(Data::PowerControl(data.try_into().unwrap())),
+            Command::PowerControlRegister => Ok(Data::PowerControl(data.into())),
             Command::ControlRegister(func) if func == Function::Config => {
                 Ok(Data::Control(Config::from(data as u8)))
             }
@@ -246,18 +202,24 @@ pub enum Error<E> {
     ReadError,
 }
 
+/// Data to send to this device
 #[derive(Debug)]
-enum Data<PCFG> {
+pub enum Data<PCFG> {
+    /// A dac value
     DacValue(u16),
+    /// A range selection for a dac channel
     OutputRange(OutputRange),
+    /// Device configuration
     Control(Config),
+    /// Power control settings
     PowerControl(PCFG),
+    /// No data (for NOP/LOAD/CLEAR functions)
     None,
 }
 /// Enum determining the contents of the Register and Address bits
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
-enum Command<C> {
+pub enum Command<C> {
     /// Access the DAC register of the channel(s)
     DacRegister(C),
     /// Access the range select register of the channel(s)
