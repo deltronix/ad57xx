@@ -10,8 +10,9 @@ readme = "README.md"
 categories = ["embedded", "no-std"]
 keywords = ["spi", "embedded-hal", "driver"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
+default = ["readback"]
+# Enable if you want to be able to read back values from the device
 readback = []
 
 
